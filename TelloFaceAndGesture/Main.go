@@ -167,7 +167,8 @@ type FeatureData {
 
 const DroneSpeedConstant = .5
 //Impirically derived//
-const FeatureSizeToimageSizeRatioConstant = .18
+const FeatureSizeToimageSizeRatioConstant = .18 //Try: .1
+const NumberOfSamplesToUpdateSkinColorParametersConstant = 10
 
 type ImageProcessor struct {
 	detectionImageSize image.Point
@@ -196,13 +197,14 @@ func ( this *ImageProcessor ) SampleSkinColor( image *gocv.Mat ) ( bool, gocv.Sc
 		return false, gocv.Scalar{}, gocv.Scalar{}
 	}
 	this.skinColorSampleFrames = append( this.skinColorSampleFrames, image.Clone() )
-	// test := ToHsv( *image )
-	// DebugShowImage( &test, &this.classifier )
+	test := ToHsv( *image )
+	DebugShowImage( &test, &this.classifier )
 	this.numberOfSkinColorSampleFrames -= 1
 	if this.numberOfSkinColorSampleFrames >= 0 {
 		return false, gocv.Scalar{}, gocv.Scalar{}
 	}
 	this.skinColorLowerBound, this.skinColorUpperBound = AverageSkinColor( this.skinColorSampleFrames )
+	this.maxSkinColorSampleFrames = NumberOfSamplesToUpdateSkinColorParametersConstant
 	this.numberOfSkinColorSampleFrames = this.maxSkinColorSampleFrames
 	this.skinColorSampleFrames = []gocv.Mat{}
 	this.foundSkinColor = true
@@ -286,40 +288,22 @@ func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
 			fmt.Println( this.skinColorUpperBound )
 		}
 	} else {
-		this.maxSkinColorSampleFrames = 10
-		// img := this.MakeSkinMask( image )
+		skinMaskImage := this.MakeSkinMask( image )
 		// DebugShowImage( &img, &this.classifier )
 		_, featureDetectFailure, featureRectangle := this.SampleFeature( image )
 		//This part helps improve skin color parameters//
 		if featureDetectFailure == false && IsZeroScalar( featureRectangle ) == false {
-			fmt.Println( "Found face at ", featureRectangle )
-			detectionImage := ResizeImage( *image, this.detectionImageSize )
-			this.SampleSkinColor( &detectionImage )
-			// xRatio := float64( image.Size()[ 0 ] ) / float64( this.detectionImageSize.X )
-			// yRatio := float64( image.Size()[ 1 ] ) / float64( this.detectionImageSize.Y )
-			// featureRectangle.Val1 *= xRatio// * 1.25
-			// featureRectangle.Val2 *= yRatio
-			// featureRectangle.Val3 *= xRatio// * 1.25
-			// featureRectangle.Val4 *= yRatio
-			// featureRectangle.Val1 = ( featureRectangle.Val3 ) / 2
-			// featureRectangle.Val2 = ( featureRectangle.Val4 ) / 2//* .75 / 2
-			/*inBounds := func ( value float64, dimention int ) float64 {
-				if value >= float64( image.Size()[ dimention ] ) {
-					return float64( image.Size()[ dimention ] - 1 )
-				} else if value < 0.0 {
-					return 0.0
-				}
-				return value
+			// fmt.Println( "Found face at ", featureRectangle )
+			resizeImage := ResizeImage( *image, this.detectionImageSize )
+			faceSample := resizeImage.Region( ScalarToRectangle( featureRectangle ) )
+			doneSampling, lb, ub := this.SampleSkinColor( &faceSample )
+			gocv.Rectangle( &skinMaskImage, ScaleRectangleToFitImage( 
+					featureRectangle, this.detectionImageSize, MatSize( &skinMaskImage ) ), colornames.Black, -1 )
+			if doneSampling == true {
+				fmt.Println( "New bounds ", lb, ", ", ub )
 			}
-			featureRectangle.Val1 = inBounds( featureRectangle.Val1, 0 )
-			featureRectangle.Val2 = inBounds( featureRectangle.Val2, 1 )
-			featureRectangle.Val3 = inBounds( featureRectangle.Val3, 0 )
-			featureRectangle.Val4 = inBounds( featureRectangle.Val4, 1 )*/
-			// fmt.Println( featureRectangle )
-			// face := image.Region( ScalarToRectangle( featureRectangle ) )
-			gocv.Rectangle( &detectionImage, ScalarToRectangle( featureRectangle ), colornames.Black, -1 )
-			DebugShowImage( &detectionImage, &this.classifier )
 		}
+		DebugShowImage( &skinMaskImage, &this.classifier )
 	}
 	this.frame += 1
 }
@@ -417,8 +401,8 @@ func TestMain1() {
 }
 
 func main() {
-	TestMain1()
-	// TestMain0()
+	// TestMain1()
+	TestMain0()
 }
 /*				imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( featureDetectImageSize ) )
 				fmt.Println( "Image ratio ", imageRatio )

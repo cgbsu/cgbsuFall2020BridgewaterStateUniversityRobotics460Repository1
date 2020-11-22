@@ -31,3 +31,24 @@ func RectangleArea( rectangle image.Rectangle ) int {
 func PointArea( point image.Point ) int {
 	return point.X * point.Y
 }
+
+func MatSize( mat *gocv.Mat ) image.Point {
+	return image.Point{ mat.Size()[ 0 ], mat.Size()[ 1 ] }
+}
+
+func ScaleRectangleToFitImage( rectangle gocv.Scalar, from, to image.Point ) image.Rectangle {
+	xFactor := float64( to.X ) / float64( from.X )
+	yFactor := float64( to.Y ) / float64( from.Y )
+	rectangle.Val1 *= xFactor
+	rectangle.Val2 *= yFactor
+	rectangle.Val3 *= xFactor
+	rectangle.Val4 *= yFactor
+	xScalar := ( 1.05 + ( .5 * rectangle.Val1 / float64( to.X ) ) )
+	yScalar0 := ( 2.0 * ( rectangle.Val2 / float64( to.Y ) ) )
+	yScalar1 := ( 2.0 * ( rectangle.Val4 / float64( to.Y ) ) )
+	rectangle.Val1 *= xScalar
+	rectangle.Val2 *= yScalar0
+	rectangle.Val3 *= xScalar
+	rectangle.Val4 *= yScalar1
+	return ScalarToRectangle( rectangle )
+}
