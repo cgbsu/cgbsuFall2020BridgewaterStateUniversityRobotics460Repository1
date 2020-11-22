@@ -225,10 +225,6 @@ func ( this *ImageProcessor ) MakeSkinMask( toMask *gocv.Mat ) gocv.Mat {
 	gocv.Dilate( skinMask, &skinMask, gocv.NewMat() )
 	return skinMask
 }
-/*
-func ( this *ImageProcessor ) WaitForFeatureThreads( sample *gocv.Mat ) ( bool, gocv.Scalar ) {
-}
-*/
 
 func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, gocv.Scalar ) {
 	detectionImage := ResizeImage( *sample, this.detectionImageSize )
@@ -251,9 +247,9 @@ func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, go
 		} )
 		if numberOfFeatures > 0 {
 			this.featureRectangle.AddScalarSample( RectangleToScalar( largestFeatureBound ) )
-			samplingFailure = true
 		} else {
 			this.featureRectangle.Clear()
+			samplingFailure = true
 		}
 		return false, samplingFailure, RectangleToScalar( largestFeatureBound )
 	}
@@ -291,19 +287,38 @@ func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
 		}
 	} else {
 		this.maxSkinColorSampleFrames = 10
-		img := this.MakeSkinMask( image )
-		DebugShowImage( &img, &this.classifier )
+		// img := this.MakeSkinMask( image )
+		// DebugShowImage( &img, &this.classifier )
 		_, featureDetectFailure, featureRectangle := this.SampleFeature( image )
 		//This part helps improve skin color parameters//
 		if featureDetectFailure == false && IsZeroScalar( featureRectangle ) == false {
-			// fmt.Println( "Found face at ", featureRectangle )
+			fmt.Println( "Found face at ", featureRectangle )
 			detectionImage := ResizeImage( *image, this.detectionImageSize )
-			face := detectionImage.Region( ScalarToRectangle( featureRectangle ) )
-			// DebugShowImage( &face, &this.classifier )
-			this.SampleSkinColor( &face )
-			// if didFeature == true {
-				// fmt.Println( "New bounds, ", lb, ub )
-			// }
+			this.SampleSkinColor( &detectionImage )
+			// xRatio := float64( image.Size()[ 0 ] ) / float64( this.detectionImageSize.X )
+			// yRatio := float64( image.Size()[ 1 ] ) / float64( this.detectionImageSize.Y )
+			// featureRectangle.Val1 *= xRatio// * 1.25
+			// featureRectangle.Val2 *= yRatio
+			// featureRectangle.Val3 *= xRatio// * 1.25
+			// featureRectangle.Val4 *= yRatio
+			// featureRectangle.Val1 = ( featureRectangle.Val3 ) / 2
+			// featureRectangle.Val2 = ( featureRectangle.Val4 ) / 2//* .75 / 2
+			/*inBounds := func ( value float64, dimention int ) float64 {
+				if value >= float64( image.Size()[ dimention ] ) {
+					return float64( image.Size()[ dimention ] - 1 )
+				} else if value < 0.0 {
+					return 0.0
+				}
+				return value
+			}
+			featureRectangle.Val1 = inBounds( featureRectangle.Val1, 0 )
+			featureRectangle.Val2 = inBounds( featureRectangle.Val2, 1 )
+			featureRectangle.Val3 = inBounds( featureRectangle.Val3, 0 )
+			featureRectangle.Val4 = inBounds( featureRectangle.Val4, 1 )*/
+			// fmt.Println( featureRectangle )
+			// face := image.Region( ScalarToRectangle( featureRectangle ) )
+			gocv.Rectangle( &detectionImage, ScalarToRectangle( featureRectangle ), colornames.Black, -1 )
+			DebugShowImage( &detectionImage, &this.classifier )
 		}
 	}
 	this.frame += 1
@@ -382,17 +397,16 @@ func TestMain1() {
 				previousMoveVector, gotClose = imageProcessor.RecommendMovementVector( featureScalar )
 				drone.SetVector( float32( previousMoveVector.x ), float32( previousMoveVector.y ), float32( previousMoveVector.z ), 0.0 )
 				framesSinceDetect = 0
-				fmt.Println( "Move ", previousMoveVector.x, ", ", previousMoveVector.y, ", ", previousMoveVector.z )
-			} else if samplingFailure == true || framesSinceDetect > 10 {
-				fmt.Println( "Stop" )
-				if gotClose == false || framesSinceDetect > 100 {
+				fmt.Println( "Move ", previousMoveVector.x, ", ", previousMoveVector.y, ", ", previousMoveVector.z, " sampling failure", samplingFailure )
+			} else {//if samplingFailure == true || framesSinceDetect > 10 {
+				fmt.Println( "Stop sample failure ", samplingFailure, " got close ", gotClose )
+				if framesSinceDetect > 100 {
 					drone.SetVector( 0.0, 0.0, 0.0, float32( previousMoveVector.y ) )
 				} else {
 					drone.SetVector( 0.0, 0.0, 0.0, 0.0 )
 				}
 			}
-			window.IMShow( cameraMedia )
-			window.WaitKey( 1 )	
+			DebugShowImage( &cameraMedia, &imageProcessor.classifier )
 		} else {
 			fmt.Println( "Error reading from camera" )
 			drone.Land()
@@ -403,8 +417,8 @@ func TestMain1() {
 }
 
 func main() {
-	// TestMain1()
-	TestMain0()
+	TestMain1()
+	// TestMain0()
 }
 /*				imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( featureDetectImageSize ) )
 				fmt.Println( "Image ratio ", imageRatio )
