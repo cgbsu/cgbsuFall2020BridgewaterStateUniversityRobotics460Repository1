@@ -5,9 +5,10 @@ import (
 	"gocv.io/x/gocv"
 )
 func ToHsv( sourceImage gocv.Mat ) gocv.Mat {
-	destinationImage := gocv.NewMat()
-	gocv.CvtColor( sourceImage, &destinationImage, gocv.ColorRGBToHSV )
-	return destinationImage
+	// destinationImage := gocv.NewMat()
+	gocv.CvtColor( sourceImage, &sourceImage, gocv.ColorRGBToHSV )
+	// return destinationImage
+	return sourceImage
 }
 
 const HsvOffsetLowThresholdConstant = 80;

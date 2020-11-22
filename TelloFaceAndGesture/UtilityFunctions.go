@@ -5,6 +5,10 @@ import (
 	"gocv.io/x/gocv"
 )
 
+func IsZeroScalar( scalar gocv.Scalar ) bool {
+	return ( scalar.Val1 == 0 ) && ( scalar.Val2 == scalar.Val1 && ( scalar.Val2 == scalar.Val3 && ( scalar.Val3 == scalar.Val4 ) ) )
+}
+
 func RectangleToScalar( rectangle image.Rectangle ) gocv.Scalar {
 	return gocv.Scalar{ 
 		Val1: float64( rectangle.Min.X ), Val2: float64( rectangle.Min.Y ), 

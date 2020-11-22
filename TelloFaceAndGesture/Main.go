@@ -195,16 +195,18 @@ func ( this *ImageProcessor ) SampleSkinColor( image *gocv.Mat ) ( bool, gocv.Sc
 	if this.frame < this.skinSampleWaitFrames { 
 		return false, gocv.Scalar{}, gocv.Scalar{}
 	}
+	this.skinColorSampleFrames = append( this.skinColorSampleFrames, image.Clone() )
+	// test := ToHsv( *image )
+	// DebugShowImage( &test, &this.classifier )
+	this.numberOfSkinColorSampleFrames -= 1
 	if this.numberOfSkinColorSampleFrames >= 0 {
-		this.skinColorSampleFrames = append( this.skinColorSampleFrames, image.Clone() )
-		test := ToHsv( *image )
-		DebugShowImage( &test, &this.classifier )
-		this.numberOfSkinColorSampleFrames -= 1
 		return false, gocv.Scalar{}, gocv.Scalar{}
 	}
 	this.skinColorLowerBound, this.skinColorUpperBound = AverageSkinColor( this.skinColorSampleFrames )
+	this.numberOfSkinColorSampleFrames = this.maxSkinColorSampleFrames
+	this.skinColorSampleFrames = []gocv.Mat{}
 	this.foundSkinColor = true
-	return false, this.skinColorLowerBound, this.skinColorUpperBound
+	return true, this.skinColorLowerBound, this.skinColorUpperBound
 }
 
 func ( this *ImageProcessor ) ResetSkinColor() {
@@ -215,12 +217,12 @@ func ( this *ImageProcessor ) ResetSkinColor() {
 func ( this *ImageProcessor ) MakeSkinMask( toMask *gocv.Mat ) gocv.Mat {
 	// binaryImage := gocv.NewMat()
 	skinMask := gocv.NewMat()
-	gocv.InRangeWithScalar( ToHsv( toMask.Clone() ), this.skinColorLowerBound, this.skinColorUpperBound, &skinMask )//&binaryImage )
-	// structuringElement := gocv.GetStructuringElement( gocv.MorphEllipse, image.Point{ X: 3, Y: 3 } ) 
-	// morphed := binaryImage.Clone()
-	// gocv.MorphologyEx( binaryImage, &morphed, gocv.MorphOpen, structuringElement )
+	gocv.InRangeWithScalar( ToHsv( *toMask ), this.skinColorLowerBound, this.skinColorUpperBound, &skinMask )//&binaryImage )
+	structuringElement := gocv.GetStructuringElement( gocv.MorphEllipse, image.Point{ X: 3, Y: 3 } ) 
+	// morphed := binaryImage
+	gocv.MorphologyEx( skinMask, &skinMask, gocv.MorphOpen, structuringElement )
 	// skinMask := gocv.NewMat()
-	// gocv.Dilate( morphed, &skinMask, gocv.NewMat() )
+	gocv.Dilate( skinMask, &skinMask, gocv.NewMat() )
 	return skinMask
 }
 /*
@@ -232,7 +234,7 @@ func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, go
 	detectionImage := ResizeImage( *sample, this.detectionImageSize )
 	if this.featureRectangle.AtDesiredSampleCount() == false {
 		detectionImage := ResizeImage( *sample, this.detectionImageSize )
-		DebugShowImage( &detectionImage, &this.classifier )
+		// DebugShowImage( &detectionImage, &this.classifier )
 		largestFeatureBound := image.Rectangle{ Min: image.Point{ X: 0, Y: 0 }, Max: image.Point{ X: 0, Y: 0 } }
 		largestFeatureBoundArea := 0
 		numberOfFeatures := 0
@@ -259,31 +261,17 @@ func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, go
 	averagedScalar := this.featureRectangle.ConstructScalar()
 	this.featureRectangle.Clear()
 	gocv.Rectangle( &detectionImage, ScalarToRectangle( averagedScalar ), colornames.Cadetblue, 3 )
-	DebugShowImage( &detectionImage, &this.classifier )
+	// DebugShowImage( &detectionImage, &this.classifier )
 	return true, false, averagedScalar
 }
-
-					/*featureCenter := image.Point{ X: ( featureRectangle.Min.X + ( featureRectangle.Size().X / 2 ) ), 
-						Y: ( featureRectangle.Min.Y + ( featureRectangle.Size().Y / 2 ) ) }
-					horizontalVelocity := ( featureDetectImageSize.X / 2 ) - featureCenter.X
-					verticalVelocity := ( featureDetectImageSize.Y / 2 ) - featureCenter.Y
-					magnitude := math.Sqrt( ( horizontalVelocity * horizontalVelocity ) + ( verticalVelocity * verticalVelocity ) )
-					horizontalVelocity = ( horizontalVelocity / magnitude ) * SpeedConstant
-					verticalVelocity = ( verticalVelocity / magnitude ) * SpeedConstant
-					drone.SetVector( SpeedConstant, horizontalVelocity, verticalVelocity, 0.0 )*/
-
 
 func ( this *ImageProcessor ) RecommendMovementVector( featureScalar gocv.Scalar ) Vector3 {
 	featureRectangle := ScalarToRectangle( featureScalar )
 	imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( this.detectionImageSize ) )
 	if imageRatio < FeatureSizeToimageSizeRatioConstant {
-		// featureCenter := Vector3{ x: ( featureRectangle.Min.X + ( featureRectangle.Size().X / 2 ) ), 
-			// Y: ( featureRectangle.Min.Y + ( featureRectangle.Size().Y / 2 ) ) }
 		featureCenter := PointToVector3( featureRectangle.Size() )
 		featureCenter.MultiplyByScalar( .5, false )
 		featureCenter.AddVector( PointToVector3( featureRectangle.Min ), false )
-		// horizontalVelocity := ( featureDetectImageSize.X / 2 ) - featureCenter.X
-		// verticalVelocity := ( featureDetectImageSize.Y / 2 ) - featureCenter.Y
 		moveVector := PointToVector3( this.detectionImageSize )
 		moveVector.MultiplyByScalar( .5, false )
 		moveVector = featureCenter.AddVector( moveVector.Negate( true ), false )
@@ -302,11 +290,22 @@ func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
 			fmt.Println( this.skinColorUpperBound )
 		}
 	} else {
+		this.maxSkinColorSampleFrames = 10
 		img := this.MakeSkinMask( image )
 		DebugShowImage( &img, &this.classifier )
+		_, featureDetectFailure, featureRectangle := this.SampleFeature( image )
+		//This part helps improve skin color parameters//
+		if featureDetectFailure == false && IsZeroScalar( featureRectangle ) == false {
+			// fmt.Println( "Found face at ", featureRectangle )
+			detectionImage := ResizeImage( *image, this.detectionImageSize )
+			face := detectionImage.Region( ScalarToRectangle( featureRectangle ) )
+			// DebugShowImage( &face, &this.classifier )
+			didFeature, lb, ub := this.SampleSkinColor( &face )
+			// if didFeature == true {
+				// fmt.Println( "New bounds, ", lb, ub )
+			// }
+		}
 	}
-	// doneSampling, featureRectangle := this.SampleFeature( image )
-	// fmt.Println( doneSampling, ", ", featureRectangle )
 	this.frame += 1
 }
 
@@ -390,7 +389,7 @@ func TestMain1() {
 }
 
 func main() {
-	TestMain1()
+	TestMain0()
 }
 /*				imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( featureDetectImageSize ) )
 				fmt.Println( "Image ratio ", imageRatio )
