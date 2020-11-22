@@ -265,7 +265,7 @@ func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, go
 	return true, false, averagedScalar
 }
 
-func ( this *ImageProcessor ) RecommendMovementVector( featureScalar gocv.Scalar ) Vector3 {
+func ( this *ImageProcessor ) RecommendMovementVector( featureScalar gocv.Scalar ) ( Vector3, bool ) {
 	featureRectangle := ScalarToRectangle( featureScalar )
 	imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( this.detectionImageSize ) )
 	if imageRatio < FeatureSizeToimageSizeRatioConstant {
@@ -277,9 +277,9 @@ func ( this *ImageProcessor ) RecommendMovementVector( featureScalar gocv.Scalar
 		moveVector = featureCenter.AddVector( moveVector.Negate( true ), false )
 		moveVector = moveVector.Normalize()
 		moveVector.MultiplyByScalar( DroneSpeedConstant, false )
-		return Vector3{ DroneSpeedConstant, moveVector.x, -moveVector.y }
+		return Vector3{ DroneSpeedConstant, moveVector.x, -moveVector.y }, false
 	}
-	return Vector3{ x: 0.0, y: 0.0, z: 0.0 }
+	return Vector3{ x: 0.0, y: 0.0, z: 0.0 }, true
 }
 
 func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
@@ -300,7 +300,7 @@ func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
 			detectionImage := ResizeImage( *image, this.detectionImageSize )
 			face := detectionImage.Region( ScalarToRectangle( featureRectangle ) )
 			// DebugShowImage( &face, &this.classifier )
-			didFeature, lb, ub := this.SampleSkinColor( &face )
+			this.SampleSkinColor( &face )
 			// if didFeature == true {
 				// fmt.Println( "New bounds, ", lb, ub )
 			// }
@@ -313,10 +313,12 @@ func ( this *ImageProcessor ) CleanUp() {
 	this.classifier.Close()
 }
 
-
-	//X forward
-	//Y right
-	//Z up
+/*************************
+* Note for drone vectors *
+* X forward **************
+* Y right ****************
+* Z up *******************
+*************************/
 
 const TelloPortConstant = "8890"
 const NumberOfTelloImageColorChannels = 3
@@ -367,28 +369,41 @@ func TestMain1() {
 	cameraMedia := gocv.NewMat()
 	var diagnostic error
 	frames := 0
+	framesSinceDetect := 0
+	gotClose := false
 	for {
 		cameraMedia, diagnostic = ReadTelloCameraImage( telloCameraImageSize, NumberOfTelloImageColorChannels, ffmpegMediaStream )	
 		if diagnostic == nil {
 			doneSampling, samplingFailure, featureScalar := imageProcessor.SampleFeature( &cameraMedia )
 			// featureRectangle := ScalarToRectangle( featureScalar )
 			frames += 1
+			framesSinceDetect += 1
 			if doneSampling == true {
-				previousMoveVector := imageProcessor.RecommendMovementVector( featureScalar )
+				previousMoveVector, gotClose = imageProcessor.RecommendMovementVector( featureScalar )
 				drone.SetVector( float32( previousMoveVector.x ), float32( previousMoveVector.y ), float32( previousMoveVector.z ), 0.0 )
+				framesSinceDetect = 0
 				fmt.Println( "Move ", previousMoveVector.x, ", ", previousMoveVector.y, ", ", previousMoveVector.z )
-			} else if samplingFailure == true {
+			} else if samplingFailure == true || framesSinceDetect > 10 {
 				fmt.Println( "Stop" )
-				drone.SetVector( 0.0, 0.0, 0.0, float32( previousMoveVector.y ) )
+				if gotClose == false || framesSinceDetect > 100 {
+					drone.SetVector( 0.0, 0.0, 0.0, float32( previousMoveVector.y ) )
+				} else {
+					drone.SetVector( 0.0, 0.0, 0.0, 0.0 )
+				}
 			}
 			window.IMShow( cameraMedia )
 			window.WaitKey( 1 )	
+		} else {
+			fmt.Println( "Error reading from camera" )
+			drone.Land()
+			break
 		}
 	}
 	// drone.Land()
 }
 
 func main() {
+	// TestMain1()
 	TestMain0()
 }
 /*				imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( featureDetectImageSize ) )
