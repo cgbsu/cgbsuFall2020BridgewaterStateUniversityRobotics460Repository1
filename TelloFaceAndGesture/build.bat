@@ -1,0 +1,1 @@
+go build Averages.go ScalarAverage.go Vector3.go UtilityFunctions.go SkinFunctions.go Main.go

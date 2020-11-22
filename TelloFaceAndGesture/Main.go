@@ -29,7 +29,9 @@ import (
 	"log"
 	"os/exec"
 	"time"
-	"math"
+	// "math"
+	// "bufio"
+	// "os"
 	"image"
 	"strconv"
 	"gobot.io/x/gobot"
@@ -139,65 +141,42 @@ func DetectFeatures( classifier *gocv.CascadeClassifier, detectionImage gocv.Mat
 */
 
 var window *gocv.Window
-
-func ToHsv( sourceImage gocv.Mat ) gocv.Mat {
-	destinationImage := gocv.NewMat()
-	gocv.CvtColor( sourceImage, &destinationImage, gocv.ColorBGRToHSV )
-	return destinationImage
-}
-
-const HsvOffsetLowThresholdConstant = 80;
-const HsvOffsetHighThresholdConstant = 30;
-
-func CalculateThresholds( hsvSample0, hsvSample1 gocv.Mat ) ( gocv.Scalar, gocv.Scalar ) {
-	hsvMean0 := hsvSample0.Mean()
-	hsvMean1 := hsvSample1.Mean()
-	hChannelLowThreashold := math.Min( hsvMean0.Val1, hsvMean1.Val1 ) - HsvOffsetLowThresholdConstant
-	hChannelHighThreashold := math.Max( hsvMean0.Val1, hsvMean1.Val1 ) + HsvOffsetHighThresholdConstant
-	sChannelLowThreashold := math.Min( hsvMean0.Val2, hsvMean1.Val2 ) - HsvOffsetLowThresholdConstant
-	sChannelHighThreashold := math.Max( hsvMean0.Val2, hsvMean1.Val2 ) + HsvOffsetHighThresholdConstant
-	vChannelLowThreashold := math.Min( hsvMean0.Val3, hsvMean1.Val3 ) - HsvOffsetLowThresholdConstant
-	vChannelHighThreashold := math.Max( hsvMean0.Val3, hsvMean1.Val3 ) + HsvOffsetHighThresholdConstant
-	return gocv.Scalar{ Val1: hChannelLowThreashold, Val2: sChannelLowThreashold, 
-					Val3: vChannelLowThreashold, Val4: 0  }, 
-			gocv.Scalar{ Val1: hChannelHighThreashold, Val2: sChannelHighThreashold, 
-					Val3: vChannelHighThreashold, Val4: 0  }
-}
-
-func MakeHandMask( skinColorLowerBound, skinColorUpperBound gocv.Scalar, detectionImage gocv.Mat ) gocv.Mat {
-	colorConvertedImage := gocv.NewMatWithSize( 
-			detectionImage.Size()[ 0 ], detectionImage.Size()[ 1 ], gocv.MatTypeCV8UC3 )
-	gocv.CvtColor( detectionImage, &colorConvertedImage, gocv.ColorBGRToHLS )
-	gocv.InRangeWithScalar( colorConvertedImage, skinColorLowerBound, skinColorUpperBound, &colorConvertedImage )
-	return colorConvertedImage
-}
-
-func AverageSkinColor( samples []gocv.Mat ) ( gocv.Scalar, gocv.Scalar ) {
-	//Need at least 2 samples to take an average//
-	if len( samples ) >= 2 {
-		var lowerBound, upperBound ScalarAverage
-		lowerBound.InitializeAverage( len( samples ) )
-		upperBound.InitializeAverage( len( samples ) )
-		lastSample := ToHsv( samples[ 0 ] )
-		for i := 1; i < len( samples ); i += 1 {
-			currentImage := ToHsv( samples[ i ] )
-			lowerBoundSample, upperBoundSample := CalculateThresholds( lastSample, currentImage )
-			lowerBound.AddScalarSample( lowerBoundSample )
-			upperBound.AddScalarSample( upperBoundSample )
-			lastSample = currentImage
+var closeWindow bool
+var webcam *gocv.VideoCapture
+func DebugShowImage( toShow *gocv.Mat, classifier *gocv.CascadeClassifier ) {
+	if closeWindow == false {
+		window.IMShow( *toShow )
+		closeWindow = ( window.WaitKey( 1 ) != -1 )
+		if closeWindow == true {
+			webcam.Close()
+			classifier.Close()
+			window.Close()
 		}
-		return lowerBound.ConstructScalar(), upperBound.ConstructScalar()
 	}
-	return gocv.Scalar{}, gocv.Scalar{}
 }
+
+const NumberOfFeatureSamplesConstant = 3
+/*const NoResultConstant = 0
+const StartOverConstant = 1
+const GotResultConstant = 2
+
+type FeatureData {
+	gocv.Scalar
+}*/
+
+
+const DroneSpeedConstant = .5
+//Impirically derived//
+const FeatureSizeToimageSizeRatioConstant = .18
 
 type ImageProcessor struct {
 	detectionImageSize image.Point
-	frame, maxSkinColorSampleFrames, numberOfSkinColorSampleFrames, skinSampleWaitFrames int
+	frame, maxSkinColorSampleFrames, numberOfSkinColorSampleFrames, skinSampleWaitFrames, samplesDispached int
 	foundSkinColor bool
 	skinColorLowerBound, skinColorUpperBound gocv.Scalar
 	skinColorSampleFrames []gocv.Mat
 	classifier gocv.CascadeClassifier
+	featureRectangle ScalarAverage
 }
 
 func ( this *ImageProcessor ) InitializeImageProcessor( detectionImageSize image.Point, skinSampleWaitFrames int, maxSkinColorSampleFrames int, haarCascade string ) {
@@ -209,6 +188,7 @@ func ( this *ImageProcessor ) InitializeImageProcessor( detectionImageSize image
 	this.classifier.Load( haarCascade )
 	fmt.Println( "Cascade loaded" )
 	this.foundSkinColor = false
+	this.featureRectangle.InitializeAverage( NumberOfFeatureSamplesConstant )
 }
 
 func ( this *ImageProcessor ) SampleSkinColor( image *gocv.Mat ) ( bool, gocv.Scalar, gocv.Scalar ) {
@@ -217,6 +197,8 @@ func ( this *ImageProcessor ) SampleSkinColor( image *gocv.Mat ) ( bool, gocv.Sc
 	}
 	if this.numberOfSkinColorSampleFrames >= 0 {
 		this.skinColorSampleFrames = append( this.skinColorSampleFrames, image.Clone() )
+		test := ToHsv( *image )
+		DebugShowImage( &test, &this.classifier )
 		this.numberOfSkinColorSampleFrames -= 1
 		return false, gocv.Scalar{}, gocv.Scalar{}
 	}
@@ -230,10 +212,101 @@ func ( this *ImageProcessor ) ResetSkinColor() {
 	this.foundSkinColor = false
 }
 
+func ( this *ImageProcessor ) MakeSkinMask( toMask *gocv.Mat ) gocv.Mat {
+	// binaryImage := gocv.NewMat()
+	skinMask := gocv.NewMat()
+	gocv.InRangeWithScalar( ToHsv( toMask.Clone() ), this.skinColorLowerBound, this.skinColorUpperBound, &skinMask )//&binaryImage )
+	// structuringElement := gocv.GetStructuringElement( gocv.MorphEllipse, image.Point{ X: 3, Y: 3 } ) 
+	// morphed := binaryImage.Clone()
+	// gocv.MorphologyEx( binaryImage, &morphed, gocv.MorphOpen, structuringElement )
+	// skinMask := gocv.NewMat()
+	// gocv.Dilate( morphed, &skinMask, gocv.NewMat() )
+	return skinMask
+}
+/*
+func ( this *ImageProcessor ) WaitForFeatureThreads( sample *gocv.Mat ) ( bool, gocv.Scalar ) {
+}
+*/
+
+func ( this *ImageProcessor ) SampleFeature( sample *gocv.Mat ) ( bool, bool, gocv.Scalar ) {
+	detectionImage := ResizeImage( *sample, this.detectionImageSize )
+	if this.featureRectangle.AtDesiredSampleCount() == false {
+		detectionImage := ResizeImage( *sample, this.detectionImageSize )
+		DebugShowImage( &detectionImage, &this.classifier )
+		largestFeatureBound := image.Rectangle{ Min: image.Point{ X: 0, Y: 0 }, Max: image.Point{ X: 0, Y: 0 } }
+		largestFeatureBoundArea := 0
+		numberOfFeatures := 0
+		samplingFailure := false
+		DetectFeatures( &this.classifier, detectionImage, func( instance image.Rectangle ) {
+			numberOfFeatures += 1
+			currentFeatureSize := instance.Size()
+			currentFeatureArea := currentFeatureSize.X
+			currentFeatureArea  *= currentFeatureSize.Y
+			if largestFeatureBoundArea < currentFeatureArea {
+				largestFeatureBoundArea = currentFeatureArea
+				largestFeatureBound = instance
+			}
+		} )
+		if numberOfFeatures > 0 {
+			this.featureRectangle.AddScalarSample( RectangleToScalar( largestFeatureBound ) )
+			samplingFailure = true
+		} else {
+			this.featureRectangle.Clear()
+		}
+		return false, samplingFailure, RectangleToScalar( largestFeatureBound )
+	}
+	//This mean it throws away a frame for detection.//
+	averagedScalar := this.featureRectangle.ConstructScalar()
+	this.featureRectangle.Clear()
+	gocv.Rectangle( &detectionImage, ScalarToRectangle( averagedScalar ), colornames.Cadetblue, 3 )
+	DebugShowImage( &detectionImage, &this.classifier )
+	return true, false, averagedScalar
+}
+
+					/*featureCenter := image.Point{ X: ( featureRectangle.Min.X + ( featureRectangle.Size().X / 2 ) ), 
+						Y: ( featureRectangle.Min.Y + ( featureRectangle.Size().Y / 2 ) ) }
+					horizontalVelocity := ( featureDetectImageSize.X / 2 ) - featureCenter.X
+					verticalVelocity := ( featureDetectImageSize.Y / 2 ) - featureCenter.Y
+					magnitude := math.Sqrt( ( horizontalVelocity * horizontalVelocity ) + ( verticalVelocity * verticalVelocity ) )
+					horizontalVelocity = ( horizontalVelocity / magnitude ) * SpeedConstant
+					verticalVelocity = ( verticalVelocity / magnitude ) * SpeedConstant
+					drone.SetVector( SpeedConstant, horizontalVelocity, verticalVelocity, 0.0 )*/
+
+
+func ( this *ImageProcessor ) RecommendMovementVector( featureScalar gocv.Scalar ) Vector3 {
+	featureRectangle := ScalarToRectangle( featureScalar )
+	imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( this.detectionImageSize ) )
+	if imageRatio < FeatureSizeToimageSizeRatioConstant {
+		// featureCenter := Vector3{ x: ( featureRectangle.Min.X + ( featureRectangle.Size().X / 2 ) ), 
+			// Y: ( featureRectangle.Min.Y + ( featureRectangle.Size().Y / 2 ) ) }
+		featureCenter := PointToVector3( featureRectangle.Size() )
+		featureCenter.MultiplyByScalar( .5, false )
+		featureCenter.AddVector( PointToVector3( featureRectangle.Min ), false )
+		// horizontalVelocity := ( featureDetectImageSize.X / 2 ) - featureCenter.X
+		// verticalVelocity := ( featureDetectImageSize.Y / 2 ) - featureCenter.Y
+		moveVector := PointToVector3( this.detectionImageSize )
+		moveVector.MultiplyByScalar( .5, false )
+		moveVector = featureCenter.AddVector( moveVector.Negate( true ), false )
+		moveVector = moveVector.Normalize()
+		moveVector.MultiplyByScalar( DroneSpeedConstant, false )
+		return Vector3{ DroneSpeedConstant, moveVector.x, -moveVector.y }
+	}
+	return Vector3{ x: 0.0, y: 0.0, z: 0.0 }
+}
+
 func ( this *ImageProcessor ) ProcessImage( image *gocv.Mat ) {
 	if this.foundSkinColor == false {
 		this.SampleSkinColor( image )
+		if this.foundSkinColor == true {
+			fmt.Println( this.skinColorLowerBound )
+			fmt.Println( this.skinColorUpperBound )
+		}
+	} else {
+		img := this.MakeSkinMask( image )
+		DebugShowImage( &img, &this.classifier )
 	}
+	// doneSampling, featureRectangle := this.SampleFeature( image )
+	// fmt.Println( doneSampling, ", ", featureRectangle )
 	this.frame += 1
 }
 
@@ -241,16 +314,40 @@ func ( this *ImageProcessor ) CleanUp() {
 	this.classifier.Close()
 }
 
+
+	//X forward
+	//Y right
+	//Z up
+
 const TelloPortConstant = "8890"
 const NumberOfTelloImageColorChannels = 3
 
-func main() {
+
+func TestMain0() {
+	closeWindow = false
+	// telloCameraImageSize := image.Pt( 720, 960 )
+	featureDetectImageSize := image.Pt( 90, 120 )
+	window = gocv.NewWindow( "Demo" )
+	var imageProcessor ImageProcessor
+	imageProcessor.InitializeImageProcessor( featureDetectImageSize, 10, 100, "HaarCascades/haarcascade_frontalface_default.xml" )
+	webcam, _ = gocv.VideoCaptureDevice( 0 )
+	cameraMedia := gocv.NewMat()
+	for {
+		webcam.Read( &cameraMedia )
+		imageProcessor.ProcessImage( &cameraMedia )
+	}
+	defer webcam.Close()
+}
+
+func TestMain1() {
+	closeWindow = false
 	telloCameraImageSize := image.Pt( 720, 960 )
+	featureDetectImageSize := image.Pt( 90, 120 )
 	drone := tello.NewDriver( TelloPortConstant )
 	window = gocv.NewWindow( "Demo" )
 	ffmpegMediaStream := NewFfmpegStream( telloCameraImageSize )
 	var imageProcessor ImageProcessor
-	imageProcessor.InitializeImageProcessor( image.Pt( 90, 120 ), 10, 5, "HaarCascades/haarcascade_frontalface_default.xml" )
+	imageProcessor.InitializeImageProcessor( featureDetectImageSize, 10, 5, "HaarCascades/haarcascade_frontalface_default.xml" )
 	robot := gobot.NewRobot( "tello",
 		[]gobot.Connection{},
 		[]gobot.Device{ drone },
@@ -258,19 +355,53 @@ func main() {
 			RobotWork( drone, ffmpegMediaStream )
 	} )
 	robot.Start( false )
-	// webcam, _ := gocv.VideoCaptureDevice( 0 )
+	fmt.Println( "Takeoff" )
+	drone.TakeOff()
+	fmt.Println( "1" )
+	time.Sleep( 3 * time.Second )
+	fmt.Println( "2" )
+	// defer func() {
+		// time.Sleep( 5 * time.Second )
+		// drone.Land()
+	// }()
+	previousMoveVector := Vector3{ x: 0.0, y: 0.0, z: 0.0 }
 	cameraMedia := gocv.NewMat()
 	var diagnostic error
+	frames := 0
 	for {
 		cameraMedia, diagnostic = ReadTelloCameraImage( telloCameraImageSize, NumberOfTelloImageColorChannels, ffmpegMediaStream )	
 		if diagnostic == nil {
-			// webcam.Read( &cameraMedia )
-			imageProcessor.ProcessImage( &cameraMedia )
+			doneSampling, samplingFailure, featureScalar := imageProcessor.SampleFeature( &cameraMedia )
+			// featureRectangle := ScalarToRectangle( featureScalar )
+			frames += 1
+			if doneSampling == true {
+				previousMoveVector := imageProcessor.RecommendMovementVector( featureScalar )
+				drone.SetVector( float32( previousMoveVector.x ), float32( previousMoveVector.y ), float32( previousMoveVector.z ), 0.0 )
+				fmt.Println( "Move ", previousMoveVector.x, ", ", previousMoveVector.y, ", ", previousMoveVector.z )
+			} else if samplingFailure == true {
+				fmt.Println( "Stop" )
+				drone.SetVector( 0.0, 0.0, 0.0, float32( previousMoveVector.y ) )
+			}
 			window.IMShow( cameraMedia )
 			window.WaitKey( 1 )	
 		}
 	}
+	// drone.Land()
 }
+
+func main() {
+	TestMain1()
+}
+/*				imageRatio := float64( RectangleArea( featureRectangle ) ) / float64( PointArea( featureDetectImageSize ) )
+				fmt.Println( "Image ratio ", imageRatio )
+				if imageRatio < FeatureSizeToimageSizeRatioConstant {
+					drone.SetVector( DroneSpeedConstant, 0.0, 0.0, 0.0 )
+					fmt.Println( "Forward" )
+				}
+			} else if ( frames % 10 ) == 0 { //imageProcessor.featureRectangle.numberOfSamples == 0 {
+				fmt.Println( "Stop" )
+				drone.SetVector( 0.0, 0.0, 0.0, 0.0 )
+			}*/
 
 /*
 	// result := MakeHandMask( gocv.Scalar{ Val1: 0, Val2: 26, Val3: 13, Val4: 255 }, 

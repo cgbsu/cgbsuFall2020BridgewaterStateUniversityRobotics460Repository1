@@ -7,7 +7,7 @@ import (
 //User beware, this class treats Scalars as sacars of int!//
 type ScalarAverage struct {
 	averageScalarComponents [ 4 ]Average
-	desiredSampleCount int
+	desiredSampleCount, numberOfSamples int
 }
 
 func ( this* ScalarAverage ) ApplyToAll( operation func( *Average, int ) ) {
@@ -44,12 +44,14 @@ func ( this *ScalarAverage ) CalculateAverages() [ 4 ]int {
 }
 
 func ( this *ScalarAverage ) AddSample( sample int ) {
+	this.numberOfSamples += 1
 	this.ApplyToAll( func ( component *Average, componentIndex int ) {
 		component.AddSample( sample )
 	} )
 }
 
 func ( this *ScalarAverage ) AddScalarSample( sample gocv.Scalar ) {
+	this.numberOfSamples += 1
 	scalarSample := [ 4 ]int{ int( sample.Val1 ), int( sample.Val2 ), int( sample.Val3 ), int( sample.Val4 ) }
 	this.ApplyToAll( func ( component *Average, componentIndex int ) {
 		component.AddSample( scalarSample[ componentIndex ] )
@@ -60,6 +62,7 @@ func ( this *ScalarAverage ) Clear() {
 	this.ApplyToAll( func ( component *Average, componentIndex int ) {
 		component.Clear()
 	} )
+	this.numberOfSamples = 0
 }
 
 func ( this *ScalarAverage ) AtDesiredSampleCount() bool {
