@@ -1,9 +1,18 @@
 package main
-
 import (
 	"math"
+	"image"
 	"gocv.io/x/gocv"
 )
+
+/*
+* The next few functions use:
+* https://medium.com/@muehler.v/simple-hand-gesture-recognition-using-opencv-and-javascript-eb3d6ced28a0
+* https://medium.com/@soffritti.pierfrancesco/handy-hands-detection-with-opencv-ac6e9fb3cec1
+* https://www.codepasta.com/computer-vision/2019/04/26/background-segmentation-removal-with-opencv-take-2.html
+* as a sources.
+*/
+
 func ToHsv( sourceImage gocv.Mat ) gocv.Mat {
 	// destinationImage := gocv.NewMat()
 	gocv.CvtColor( sourceImage, &sourceImage, gocv.ColorRGBToHSV )
@@ -49,4 +58,36 @@ func AverageSkinColor( samples []gocv.Mat ) ( gocv.Scalar, gocv.Scalar ) {
 		return lowerBound.ConstructScalar(), upperBound.ConstructScalar()
 	}
 	return gocv.Scalar{}, gocv.Scalar{}
+}
+
+func SaltAndPepperNoiseRemoval( toDenoise gocv.Mat, maxIterations int ) gocv.Mat {
+	lastMedian := toDenoise
+	numberOfIterations := 0
+	denoised := gocv.NewMat()
+	gocv.MedianBlur( toDenoise, &denoised, 3 )
+	for MatsAreEqual( denoised, lastMedian ) == false {
+		toDenoisePointer := toDenoise.DataPtrUint8()
+		denoisedPointer := denoised.DataPtrUint8()
+		for i, _ := range toDenoisePointer {
+			if ( ^( denoisedPointer[ i ] & toDenoisePointer[ i ] ) ) == 0 {
+				denoisedPointer[ i ] = 0
+			}
+			numberOfIterations += 1
+			if numberOfIterations > maxIterations {
+				break
+			}
+			lastMedian = denoised
+			gocv.MedianBlur( toDenoise, &denoised, 3 )			
+		}
+	}
+	return denoised
+}
+
+func RemoveBackground( toRemoveBackgroundFrom gocv.Mat ) ( gocv.Mat, [][]image.Point ) {
+	gocv.GaussianBlur( toRemoveBackgroundFrom, &toRemoveBackgroundFrom, image.Point{ 5, 5 }, 0.0, 0.0, gocv.BorderReflect101 )
+	edgeImage := gocv.NewMat()
+	gocv.Canny( toRemoveBackgroundFrom, &edgeImage, 0, 100 )
+	// edgeImage = SaltAndPepperNoiseRemoval( edgeImage, 30 )
+	contours := gocv.FindContours( edgeImage, gocv.RetrievalExternal, gocv.ChainApproxSimple )
+	return edgeImage, contours
 }

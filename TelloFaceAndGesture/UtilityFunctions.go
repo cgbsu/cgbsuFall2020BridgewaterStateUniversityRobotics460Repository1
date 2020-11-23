@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"math"
 	"gocv.io/x/gocv"
 )
 
@@ -51,4 +52,34 @@ func ScaleRectangleToFitImage( rectangle gocv.Scalar, from, to image.Point ) ima
 	rectangle.Val3 *= xScalar
 	rectangle.Val4 *= yScalar1
 	return ScalarToRectangle( rectangle )
+}
+
+const HashMatDefaultMersennePrimeConstant = 2147483647
+const HashMatDefaultInitialValueConstant = 0
+const HashMatDefaultAlphaConstant = 31
+
+func HashMat( toHash gocv.Mat, initialValue, alpha, mersennePrime int ) int {
+	hash := initialValue
+	for _, value := range toHash.DataPtrUint8() {
+		hash = ( ( ( hash * alpha ) + int( value ) ) % mersennePrime )
+	}
+	return hash
+}
+
+func DefaultHashMat( toHash gocv.Mat ) int {
+	return HashMat( toHash, HashMatDefaultInitialValueConstant, 
+			HashMatDefaultAlphaConstant, HashMatDefaultMersennePrimeConstant )
+}
+
+func MatsAreEqual( first, second gocv.Mat ) bool {
+	if first.Size()[ 0 ] == second.Size()[ 0 ] && first.Size()[ 1 ] == second.Size()[ 1 ] {
+		return ( DefaultHashMat( first ) == DefaultHashMat( second ) )
+	}
+	return false
+}
+
+func PointDistance( first, second image.Point ) float64 {
+	first.X -= second.X
+	first.Y -= second.Y
+	return math.Sqrt( float64( ( first.X * first.X ) + ( second.X * second.X ) ) )
 }
