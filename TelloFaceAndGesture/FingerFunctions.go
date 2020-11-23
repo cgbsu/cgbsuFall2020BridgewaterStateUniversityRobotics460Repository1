@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"gocv.io/x/gocv"
+	// "golang.org/x/image/colornames"
 )
 
 func CompactOnNeighborhoodMedian( points []image.Point, maxNeighborDistance float64 ) []image.Point {
@@ -26,12 +27,35 @@ func CompactOnNeighborhoodMedian( points []image.Point, maxNeighborDistance floa
 	return append( medianPoints, median )
 }
 
-/*func FindFingersCount( inputImage gocv.Mat, frame *gocv.Mat ) {
+
+
+func FindFingersCount( inputImage gocv.Mat, window *gocv.Window ) gocv.Mat {
+	contoursImage := gocv.NewMat()
+	// window.IMShow( inputImage )
+	// window.WaitKey( 2000 )
 	contours := gocv.FindContours( inputImage, gocv.RetrievalExternal, gocv.ChainApproxSimple )
-	if len( contors ) > 0 {
-		return
+	if len( contours ) <= 0 {
+		fmt.Println( "No contours" )
+		return contoursImage
 	}
-}*/
+	biggestContorIndex := -1
+	biggestArea := 0.0
+	i := 0
+	for i, _ = range contours {
+		currentArea := gocv.ContourArea( contours[ i ] )
+		if currentArea > biggestArea {
+			biggestArea = currentArea
+			biggestContorIndex = i
+		}
+	}
+	if biggestContorIndex < 0 {
+		fmt.Println( "Couldnet find the biggest contour" )
+		return contoursImage
+	}
+	hullContours := gocv.NewMat()
+	gocv.ConvexHull( contours[ i ], &hullContours, true, true )
+	return hullContours
+}
 
 type HandFinder struct {
 	net gocv.Net

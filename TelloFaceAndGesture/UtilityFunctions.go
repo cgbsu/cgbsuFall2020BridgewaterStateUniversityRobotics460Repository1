@@ -83,3 +83,18 @@ func PointDistance( first, second image.Point ) float64 {
 	first.Y -= second.Y
 	return math.Sqrt( float64( ( first.X * first.X ) + ( second.X * second.X ) ) )
 }
+
+func ToBoundedScalar( toBound gocv.Scalar, imageSize image.Point ) gocv.Scalar {
+	bound := func( canidate *float64, bound float64 ) {
+		if *canidate < 0.0 {
+			*canidate = 0.0
+		} else if *canidate >= bound {
+			*canidate = bound
+		}
+	}
+	bound( &toBound.Val1, float64( imageSize.X ) )
+	bound( &toBound.Val2, float64( imageSize.Y ) )
+	bound( &toBound.Val3, float64( imageSize.X ) )
+	bound( &toBound.Val4, float64( imageSize.Y ) )
+	return toBound
+}
