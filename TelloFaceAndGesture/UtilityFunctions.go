@@ -1,6 +1,7 @@
 package main
 
 import (
+	// "fmt"
 	"image"
 	"math"
 	"gocv.io/x/gocv"
@@ -89,7 +90,7 @@ func ToBoundedScalar( toBound gocv.Scalar, imageSize image.Point ) gocv.Scalar {
 		if *canidate < 0.0 {
 			*canidate = 0.0
 		} else if *canidate >= bound {
-			*canidate = bound
+			*canidate = ( bound - 1 )
 		}
 	}
 	bound( &toBound.Val1, float64( imageSize.X ) )
@@ -97,4 +98,17 @@ func ToBoundedScalar( toBound gocv.Scalar, imageSize image.Point ) gocv.Scalar {
 	bound( &toBound.Val3, float64( imageSize.X ) )
 	bound( &toBound.Val4, float64( imageSize.Y ) )
 	return toBound
+}
+
+func MatRegion( toCut gocv.Mat, region gocv.Scalar ) gocv.Mat {
+	copy := gocv.NewMat()
+	// fmt.Println( toCut.Rows(), " :: ", toCut.Cols() )
+	minimumDimention := math.Min( float64( toCut.Rows() ), float64( toCut.Cols() ) )
+	if region.Val1 <= minimumDimention && region.Val2 <= minimumDimention && region.Val3 <= minimumDimention && region.Val4 <= minimumDimention {
+		toCopy := toCut.RowRange( int( region.Val2 ), int( region.Val4 ) )
+		toCopy = toCopy.ColRange( int( region.Val1 ), int( region.Val3 ) )
+		toCopy.CopyTo( &copy )
+		return copy
+	}
+	return gocv.NewMat()
 }
