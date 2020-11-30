@@ -131,6 +131,7 @@ func ( this *Hand ) MakeHandDataFromImage( inputImage gocv.Mat, window *gocv.Win
 //https://github.com/Balaje/OpenCV/tree/master/haarcascades
 //https://medium.com/ai-innovation/hand-tracking-in-unity3d-f741a5e21a92
 //https://www.learnopencv.com/hand-keypoint-detection-using-deep-learning-and-opencv/
+//https://www.youtube.com/watch?v=v-XcmsYlzjA
 
 func FingerCount( img gocv.Mat, debug *gocv.Window ) ( int, image.Rectangle, gocv.Mat ) {
 

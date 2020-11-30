@@ -155,6 +155,7 @@ func FindLargestFeature( classifier *gocv.CascadeClassifier, sample gocv.Mat ) (
 * https://medium.com/@muehler.v/simple-hand-gesture-recognition-using-opencv-and-javascript-eb3d6ced28a0
 * https://medium.com/@soffritti.pierfrancesco/handy-hands-detection-with-opencv-ac6e9fb3cec1
 * https://www.codepasta.com/computer-vision/2019/04/26/background-segmentation-removal-with-opencv-take-2.html
+* https://www.youtube.com/watch?v=v-XcmsYlzjA
 * as a sources.
 */
 
