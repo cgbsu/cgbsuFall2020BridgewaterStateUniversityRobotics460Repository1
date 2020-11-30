@@ -135,14 +135,15 @@ func ( this *Hand ) MakeHandDataFromImage( inputImage gocv.Mat, window *gocv.Win
 
 func FingerCount( img gocv.Mat, debug *gocv.Window ) ( int, image.Rectangle, gocv.Mat ) {
 
+	// debug.IMShow( img )
 	// imgGrey := gocv.NewMat()
 	// defer imgGrey.Close()
 
-	// imgBlur := gocv.NewMat()
-	// defer imgBlur.Close()
+	imgBlur := gocv.NewMat()
+	defer imgBlur.Close()
 
-	// imgThresh := gocv.NewMat()
-	// defer imgThresh.Close()
+	imgThresh := gocv.NewMat()
+	defer imgThresh.Close()
 
 	hull := gocv.NewMat()
 	defer hull.Close()
@@ -152,52 +153,56 @@ func FingerCount( img gocv.Mat, debug *gocv.Window ) ( int, image.Rectangle, goc
 
 	green := color.RGBA{0, 255, 0, 0}
 	// gocv.CvtColor(img, &imgGrey, gocv.ColorBGRToGray)
-	// gocv.GaussianBlur(imgGrey, &imgBlur, image.Pt(35, 35), 0, 0, gocv.BorderDefault)
-	// gocv.Threshold(imgBlur, &imgThresh, 0, 255, gocv.ThresholdBinaryInv+gocv.ThresholdOtsu)
-	// debug.IMShow( imgThresh )
-	imgThresh := img
+	gocv.GaussianBlur(img, &imgBlur, image.Pt(35, 35), 0, 0, gocv.BorderDefault)
+	gocv.Threshold(imgBlur, &imgThresh, 0, 255, gocv.ThresholdBinaryInv+gocv.ThresholdOtsu)
+	gocv.BitwiseNot( imgThresh, &imgThresh )
+	debug.IMShow( imgThresh )
+	
+	// imgThresh = img
 	// now find biggest contour
 	// debug.IMShow( img )
 	// debug.WaitKey( 2000 )
 	contours := gocv.FindContours(imgThresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)
-	c := getBiggestContour(contours)
+	status, c := getBiggestContour(contours)
+	if status != -1 {
+		gocv.ConvexHull(c, &hull, true, false)
+		gocv.ConvexityDefects(c, hull, &defects)
 
-	gocv.ConvexHull(c, &hull, true, false)
-	gocv.ConvexityDefects(c, hull, &defects)
+		var angle float64
+		defectCount := 0
+		for i := 0; i < defects.Rows(); i++ {
+			start := c[defects.GetIntAt(i, 0)]
+			end := c[defects.GetIntAt(i, 1)]
+			far := c[defects.GetIntAt(i, 2)]
 
-	var angle float64
-	defectCount := 0
-	for i := 0; i < defects.Rows(); i++ {
-		start := c[defects.GetIntAt(i, 0)]
-		end := c[defects.GetIntAt(i, 1)]
-		far := c[defects.GetIntAt(i, 2)]
+			a := math.Sqrt(math.Pow(float64(end.X-start.X), 2) + math.Pow(float64(end.Y-start.Y), 2))
+			b := math.Sqrt(math.Pow(float64(far.X-start.X), 2) + math.Pow(float64(far.Y-start.Y), 2))
+			c := math.Sqrt(math.Pow(float64(end.X-far.X), 2) + math.Pow(float64(end.Y-far.Y), 2))
 
-		a := math.Sqrt(math.Pow(float64(end.X-start.X), 2) + math.Pow(float64(end.Y-start.Y), 2))
-		b := math.Sqrt(math.Pow(float64(far.X-start.X), 2) + math.Pow(float64(far.Y-start.Y), 2))
-		c := math.Sqrt(math.Pow(float64(end.X-far.X), 2) + math.Pow(float64(end.Y-far.Y), 2))
+			// apply cosine rule here
+			angle = math.Acos((math.Pow(b, 2)+math.Pow(c, 2)-math.Pow(a, 2))/(2*b*c)) * 57
 
-		// apply cosine rule here
-		angle = math.Acos((math.Pow(b, 2)+math.Pow(c, 2)-math.Pow(a, 2))/(2*b*c)) * 57
-
-		// ignore angles > 90 and highlight rest with dots
-		if angle <= 90 {
-			defectCount++
-			gocv.Circle(&img, far, 1, green, 2)
+			// ignore angles > 90 and highlight rest with dots
+			if angle <= 90 {
+				defectCount++
+				gocv.Circle(&img, far, 1, green, 2)
+			}
 		}
+
+		// status := fmt.Sprintf("defectCount: %d", defectCount+1)
+
+		rect := gocv.BoundingRect(c)
+		// gocv.Rectangle(&img, rect, color.RGBA{255, 255, 255, 0}, 2)
+
+		// gocv.PutText(&img, status, image.Pt(10, 20), gocv.FontHersheyPlain, 1.2, green, 2)
+		return ( defectCount + 1 ), rect, img
 	}
-
-	// status := fmt.Sprintf("defectCount: %d", defectCount+1)
-
-	rect := gocv.BoundingRect(c)
-	// gocv.Rectangle(&img, rect, color.RGBA{255, 255, 255, 0}, 2)
-
-	// gocv.PutText(&img, status, image.Pt(10, 20), gocv.FontHersheyPlain, 1.2, green, 2)
-	return ( defectCount + 1 ), rect, img
+	return 0, image.Rect( 0, 0, 10, 10 ), img
 }
 
-func getBiggestContour( contours [][]image.Point ) []image.Point {
+func getBiggestContour( contours [][]image.Point ) ( int, []image.Point ) {
 	var area float64
-	index := 0
+	index := -1
 	for i, c := range contours {
 		newArea := gocv.ContourArea(c)
 		if newArea > area {
@@ -205,5 +210,8 @@ func getBiggestContour( contours [][]image.Point ) []image.Point {
 			index = i
 		}
 	}
-	return contours[index]
+	if index == -1 {
+		return -1, []image.Point{ image.Pt( 0, 0 ) }
+	}
+	return index, contours[ index ]
 }

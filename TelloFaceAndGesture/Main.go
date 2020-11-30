@@ -196,7 +196,7 @@ type ImageProcessor struct {
 
 func ( this *ImageProcessor ) InitializeImageProcessor( detectionImageSize, gestureDetectionImageSize image.Point, skinSampleWaitFrames int, 
 			maxSkinColorSampleFrames int, faceHaarCascade, gestureHaarCascade string ) {
-	this.fingerCount.InitializeAverage( 60 )
+	this.fingerCount.InitializeAverage( 10 )
 	this.detectionImageSize = detectionImageSize
 	this.gestureDetectionImageSize = gestureDetectionImageSize
 	this.numberOfSkinColorSampleFrames = maxSkinColorSampleFrames
@@ -350,6 +350,7 @@ func ( this *ImageProcessor ) DetectGestureExperimental( skinMask, inputImage go
 					this.fingerCount.Clear()
 					this.lastHandBoundingRectangle = ScalarToRectangle( test )
 					fmt.Println( "Found hand" )
+					return -1, ScalarToRectangle( test )
 				} else {
 					region.Close()
 				}
@@ -358,6 +359,7 @@ func ( this *ImageProcessor ) DetectGestureExperimental( skinMask, inputImage go
 			fmt.Println( "False positive" )
 		}
 	}
+	debug.IMShow( skinMask )
 	if this.initilizedWaitTime == true && time.Since( this.timeFoundHandFeature ) < 2 * time.Second {
 		region := MatRegion( skinMask, RectangleToScalar( this.lastHandBoundingRectangle ) )
 		if region.Empty() == false {
@@ -392,6 +394,7 @@ func ( this *ImageProcessor ) ProcessImage( media *gocv.Mat, debug *gocv.Window 
 	} else {
 		// doneSampling, featureDetectFailure, faceScalar 
 		doneSampling, _, faceScalar, skinMask := this.PrapareImageForHandDetection( *media )
+		// debug.IMShow( skinMask )
 		count, handBound := this.DetectGestureExperimental( skinMask, *media, debug )
 		return count, handBound, doneSampling, faceScalar
 		// DebugShowImage( &skinMaskImage, &this.faceClassifier )
@@ -540,27 +543,39 @@ func TestMain3() {
 		"HaarCascades/aGest.xml" )
 	window := gocv.NewWindow( "Demo" )
 	// testWindow2 = gocv.NewWindow( "Demo2" )
-	webcam, _ := gocv.VideoCaptureDevice( 0 )
+	webcam, err := gocv.VideoCaptureDevice( 0 )
 	cameraMedia := gocv.NewMat()
+	clone := gocv.NewMat()
+	fmt.Println( "GOCV: ", err )
+	lastRectangle := image.Rect( 0, 0, 10, 10 )
 	for {
 		webcam.Read( &cameraMedia )
-		clone := cameraMedia.Clone()
+		cameraMedia.CopyTo( &clone )
+
 		// count, rectangle, _ := 
-		count, _, _, _ := imageProcessor.ProcessImage( &clone, window )
+
+		count, handRectangle, _, _ := imageProcessor.ProcessImage( &clone, window )
+		if count == -1 {
+			lastRectangle = handRectangle
+			gocv.Rectangle( &cameraMedia, handRectangle, colornames.Cadetblue, 3 )
+		}
 		if count != 0 {
 			fmt.Println( "Found ", count, "fingers" )
+			gocv.Rectangle( &cameraMedia, lastRectangle, colornames.Cadetblue, 3 )
 		}
+
 		// count, rectangle, img := FingerCount( cameraMedia, window )
 		// window.IMShow( img )
 		// fmt.Println( count, rectangle )
-		window.IMShow( cameraMedia )
+		// window.IMShow( cameraMedia )
 		if window.WaitKey( 1 ) != -1 {
 			break
 		}
+		// clone.Close()
 	}
 	defer func() {
 		webcam.Close()
-		// imageProcessor.CleanUp()
+		imageProcessor.CleanUp()
 		window.Close()
 	}()
 }
